@@ -3,3 +3,4 @@ datasets/
 uv.lock
 Manifest.toml
 .CondaPkg
+models/

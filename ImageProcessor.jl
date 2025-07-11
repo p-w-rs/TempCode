@@ -244,12 +244,13 @@ end
 
 function visualize_batch_results(batch_result, batch_type="mask"; max_samples=4)
     N = min(size(batch_result.rgb, 1), max_samples)
-    fig = plot(layout=(N, 4), size=(1200, 300*N), titlefontsize=8, dpi=100)
+    # Change layout to (N, 3) since we only have RGB, Depth, XYZ
+    fig = plot(layout=(N, 3), size=(900, 300*N), titlefontsize=8, dpi=100)
 
     for n in 1:N
         # RGB
         rgb = batch_result.rgb[n, :, :, :]
-        plot!(fig[(n-1)*4 + 1], colorview(RGB, permutedims(rgb, (3, 1, 2))),
+        plot!(fig[(n-1)*3 + 1], colorview(RGB, permutedims(rgb, (3, 1, 2))),
               title="Sample $n RGB", axis=false)
 
         # Depth
@@ -257,39 +258,34 @@ function visualize_batch_results(batch_result, batch_type="mask"; max_samples=4)
         valid_depth = depth .> 0
         if any(valid_depth)
             depth_range = extrema(depth[valid_depth])
-            heatmap!(fig[(n-1)*4 + 2], depth,
+            heatmap!(fig[(n-1)*3 + 2], depth,
                      title="Depth $(round(depth_range[1], digits=3))-$(round(depth_range[2], digits=3))m",
                      aspect_ratio=:equal, yflip=true, colorbar=true, clim=(0, depth_range[2]))
         else
-            heatmap!(fig[(n-1)*4 + 2], depth,
+            heatmap!(fig[(n-1)*3 + 2], depth,
                      title="Depth",
                      aspect_ratio=:equal, yflip=true, colorbar=true)
         end
 
-        # XYZ (show Z channel)
+        # XYZ (show Z channel with normalization info)
         xyz_z = batch_result.xyz[n, :, :, 3]
         valid = xyz_z .> 0.001
         if any(valid)
             vrange = extrema(xyz_z[valid])
-            heatmap!(fig[(n-1)*4 + 3], xyz_z,
-                     title="Z $(round(vrange[1], digits=2))-$(round(vrange[2], digits=2))",
+            # If normalized, values should be in [-2, 2] range
+            if maximum(abs.(vrange)) < 3.0
+                title_str = "Z Normalized $(round(vrange[1], digits=2))-$(round(vrange[2], digits=2))"
+            else
+                title_str = "Z $(round(vrange[1], digits=2))-$(round(vrange[2], digits=2))m"
+            end
+            heatmap!(fig[(n-1)*3 + 3], xyz_z,
+                     title=title_str,
                      aspect_ratio=:equal, yflip=true, colorbar=true,
                      clim=vrange, color=:RdBu)
         else
-            heatmap!(fig[(n-1)*4 + 3], xyz_z,
+            heatmap!(fig[(n-1)*3 + 3], xyz_z,
                      title="Z (no data)",
                      aspect_ratio=:equal, yflip=true, colorbar=true)
-        end
-
-        # Mask (if available)
-        if haskey(batch_result, :mask) && batch_result.mask !== nothing
-            mask = batch_result.mask[n, :, :]
-            heatmap!(fig[(n-1)*4 + 4], mask,
-                     title="Mask",
-                     aspect_ratio=:equal, yflip=true, colorbar=false)
-        else
-            # Empty plot
-            plot!(fig[(n-1)*4 + 4], legend=false, grid=false, axis=false)
         end
     end
 

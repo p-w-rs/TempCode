@@ -1,9 +1,9 @@
 # test_processing.jl
 
-include("LMOLoader.jl")
+include("../LMOLoader.jl")
 using .LMOLoader
 
-include("ImageProcessor.jl")
+include("../ImageProcessor.jl")
 using .ImageProcessor
 
 # Load data
@@ -23,8 +23,8 @@ depth_batch = to_batch(frame.depth)
 mask_batch = to_batch(mask_single)
 pose_batch = to_batch(pose_single)
 K_batch = to_batch(frame.K)
-mesh_radius_batch = [obj.diameter/2]
-mesh_diameter_batch = [obj.diameter]
+mesh_radius_batch = Float32[obj.diameter/2]
+mesh_diameter_batch = Float32[obj.diameter]
 
 # Process
 mask_result = process_mask_crop(
@@ -55,14 +55,14 @@ println("\n=== Testing Batch Processing ===")
 batch_size = 252
 frame_indices = 1:batch_size
 
-# Prepare batch data
-rgb_batch_multi = zeros(Float64, batch_size, 480, 640, 3)
-depth_batch_multi = zeros(Float64, batch_size, 480, 640)
+# Prepare batch data - use Float32 arrays since LMOLoader provides Float32
+rgb_batch_multi = zeros(Float32, batch_size, 480, 640, 3)
+depth_batch_multi = zeros(Float32, batch_size, 480, 640)
 mask_batch_multi = falses(batch_size, 480, 640)
-pose_batch_multi = zeros(Float64, batch_size, 4, 4)
-K_batch_multi = zeros(Float64, batch_size, 3, 3)
-mesh_radius_batch_multi = Float64[]
-mesh_diameter_batch_multi = Float64[]
+pose_batch_multi = zeros(Float32, batch_size, 4, 4)
+K_batch_multi = zeros(Float32, batch_size, 3, 3)
+mesh_radius_batch_multi = Float32[]
+mesh_diameter_batch_multi = Float32[]
 
 for (i, idx) in enumerate(frame_indices)
     local frame = frames[idx]
@@ -71,8 +71,8 @@ for (i, idx) in enumerate(frame_indices)
     mask_batch_multi[i, :, :] = frame.mask[object_id, :, :]
     pose_batch_multi[i, :, :] = frame.pose[object_id, :, :]
     K_batch_multi[i, :, :] = frame.K
-    push!(mesh_radius_batch_multi, obj.diameter/2)
-    push!(mesh_diameter_batch_multi, obj.diameter)
+    push!(mesh_radius_batch_multi, Float32(obj.diameter/2))
+    push!(mesh_diameter_batch_multi, Float32(obj.diameter))
 end
 
 # Time the batch processing
