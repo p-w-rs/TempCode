@@ -1,11 +1,21 @@
-# LMOLoader.jl (fixed)
+# LMOLoader.jl
 module LMOLoader
 
 export ObjectModel, Frames, Frame, load_scene
 
 using FileIO, ImageIO, MeshIO, JSON3, Printf
-using Meshes, Images, GeometryBasics
+using Images
 using ProgressMeter
+using PythonCall
+
+# Import Python packages
+const trimesh = PythonCall.pynew()
+const np = PythonCall.pynew()
+
+function __init__()
+    PythonCall.pycopy!(trimesh, pyimport("trimesh"))
+    PythonCall.pycopy!(np, pyimport("numpy"))
+end
 
 const OBJECT_IDS = [1, 5, 6, 8, 9, 10, 11, 12]
 const FRAME_IDS = collect(0:1213)
@@ -31,7 +41,7 @@ const OBJECT_ID_TO_MASK = Dict(
 )
 
 struct ObjectModel
-    mesh
+    mesh  # Python trimesh object
     diameter::Float64  # in meters
     min_x::Float64     # in meters
     min_y::Float64     # in meters
@@ -40,8 +50,14 @@ struct ObjectModel
     size_y::Float64    # in meters
     size_z::Float64    # in meters
 
+    # Cached Julia arrays for convenience
+    vertices::Matrix{Float64}  # (N, 3)
+    faces::Matrix{Int32}       # (M, 3) - 0-indexed for Python compatibility
+
     function ObjectModel(model_file::String, model_info)
-        mesh = load(model_file)
+        # Load mesh using trimesh
+        mesh = trimesh.load(model_file)
+
         # Convert from millimeters to meters
         diameter = model_info[:diameter] / 1000.0
         min_x = model_info[:min_x] / 1000.0
@@ -51,7 +67,14 @@ struct ObjectModel
         size_y = model_info[:size_y] / 1000.0
         size_z = model_info[:size_z] / 1000.0
 
-        return new(mesh, diameter, min_x, min_y, min_z, size_x, size_y, size_z)
+        # Cache vertices and faces as Julia arrays
+        vertices = pyconvert(Matrix{Float64}, mesh.vertices) / 1000.0  # Convert to meters
+        faces = pyconvert(Matrix{Int32}, mesh.faces)  # Keep 0-indexed
+
+        # Update the mesh vertices to be in meters
+        mesh.vertices = vertices
+
+        return new(mesh, diameter, min_x, min_y, min_z, size_x, size_y, size_z, vertices, faces)
     end
 end
 
@@ -130,8 +153,8 @@ function load_scene(dataset_root::String="datasets/lmo", scene_id::String="00000
         cam_K = scene_camera[frame_id][:cam_K]
         # cam_K is stored as row-major [fx, 0, cx, 0, fy, cy, 0, 0, 1]
         ks[frame_idx, :, :] .= [cam_K[1] cam_K[2] cam_K[3];
-                                cam_K[4] cam_K[5] cam_K[6];
-                                cam_K[7] cam_K[8] cam_K[9]]
+            cam_K[4] cam_K[5] cam_K[6];
+            cam_K[7] cam_K[8] cam_K[9]]
 
         for i in 1:length(OBJECT_IDS)
             cam_R_m2c = scene_gt[frame_id][i][:cam_R_m2c]
@@ -151,8 +174,8 @@ function load_scene(dataset_root::String="datasets/lmo", scene_id::String="00000
             poses[frame_idx, obj_idx, :, :] .= 0.0
             # Rotation matrix - Fix the transpose issue
             poses[frame_idx, obj_idx, 1:3, 1:3] .= [cam_R_m2c[1] cam_R_m2c[2] cam_R_m2c[3];
-                                                     cam_R_m2c[4] cam_R_m2c[5] cam_R_m2c[6];
-                                                     cam_R_m2c[7] cam_R_m2c[8] cam_R_m2c[9]]
+                cam_R_m2c[4] cam_R_m2c[5] cam_R_m2c[6];
+                cam_R_m2c[7] cam_R_m2c[8] cam_R_m2c[9]]
             # Translation vector converted from millimeters to meters
             poses[frame_idx, obj_idx, 1:3, 4] .= cam_t_m2c ./ 1000.0
             # Homogeneous coordinate

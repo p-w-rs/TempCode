@@ -2,3 +2,4 @@ datasets/
 .venv
 uv.lock
 Manifest.toml
+.CondaPkg
