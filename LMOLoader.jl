@@ -3,19 +3,8 @@ module LMOLoader
 
 export ObjectModel, Frames, Frame, load_scene
 
-using FileIO, ImageIO, MeshIO, JSON3, Printf
-using Images
-using ProgressMeter
-using PythonCall
-
-# Import Python packages
-const trimesh = PythonCall.pynew()
-const np = PythonCall.pynew()
-
-function __init__()
-    PythonCall.pycopy!(trimesh, pyimport("trimesh"))
-    PythonCall.pycopy!(np, pyimport("numpy"))
-end
+using FileIO, ImageIO, Images, MeshIO, JSON3
+using Printf, ProgressMeter
 
 const OBJECT_IDS = [1, 5, 6, 8, 9, 10, 11, 12]
 const FRAME_IDS = collect(0:1213)
@@ -41,22 +30,18 @@ const OBJECT_ID_TO_MASK = Dict(
 )
 
 struct ObjectModel
-    mesh  # Python trimesh object
-    diameter::Float64  # in meters
-    min_x::Float64     # in meters
-    min_y::Float64     # in meters
-    min_z::Float64     # in meters
-    size_x::Float64    # in meters
-    size_y::Float64    # in meters
-    size_z::Float64    # in meters
-
-    # Cached Julia arrays for convenience
-    vertices::Matrix{Float64}  # (N, 3)
-    faces::Matrix{Int32}       # (M, 3) - 0-indexed for Python compatibility
+    mesh  # GeometryBasics.Mesh
+    diameter::Float32  # in meters
+    min_x::Float32     # in meters
+    min_y::Float32     # in meters
+    min_z::Float32     # in meters
+    size_x::Float32    # in meters
+    size_y::Float32    # in meters
+    size_z::Float32    # in meters
 
     function ObjectModel(model_file::String, model_info)
         # Load mesh using trimesh
-        mesh = trimesh.load(model_file)
+        mesh = load(model_file)
 
         # Convert from millimeters to meters
         diameter = model_info[:diameter] / 1000.0
@@ -67,32 +52,25 @@ struct ObjectModel
         size_y = model_info[:size_y] / 1000.0
         size_z = model_info[:size_z] / 1000.0
 
-        # Cache vertices and faces as Julia arrays
-        vertices = pyconvert(Matrix{Float64}, mesh.vertices) / 1000.0  # Convert to meters
-        faces = pyconvert(Matrix{Int32}, mesh.faces)  # Keep 0-indexed
-
-        # Update the mesh vertices to be in meters
-        mesh.vertices = vertices
-
-        return new(mesh, diameter, min_x, min_y, min_z, size_x, size_y, size_z, vertices, faces)
+        return new(mesh, diameter, min_x, min_y, min_z, size_x, size_y, size_z)
     end
 end
 
 struct Frames
-    rgbs::Array{Float64,4} # (frame x height x width x 3)
-    depths::Array{Float64,3} # (frame x height x width) - in meters
+    rgbs::Array{Float32,4} # (frame x height x width x 3)
+    depths::Array{Float32,3} # (frame x height x width) - in meters
     masks::BitArray{4} # (frame x objects x height x width)
-    ks::Array{Float64,3} # (frame x 3x3) - focal lengths in pixels
-    poses::Array{Float64,4} # (frame x objects x 4x4) - translation in meters
+    ks::Array{Float32,3} # (frame x 3x3) - focal lengths in pixels
+    poses::Array{Float32,4} # (frame x objects x 4x4) - translation in meters
     valid_idxs::Vector{Int}
 end
 
 struct Frame
-    rgb::Array{Float64,3} # (height x width x 3)
-    depth::Array{Float64,2} # (height x width) - in meters
+    rgb::Array{Float32,3} # (height x width x 3)
+    depth::Array{Float32,2} # (height x width) - in meters
     mask::BitArray{3} # (objects x height x width)
-    K::Array{Float64,2} # (3x3) - focal lengths in pixels
-    pose::Array{Float64,3} # (objects x 4x4) - translation in meters
+    K::Array{Float32,2} # (3x3) - focal lengths in pixels
+    pose::Array{Float32,3} # (objects x 4x4) - translation in meters
     idx::Int
 end
 
@@ -104,7 +82,7 @@ Load depth image as raw 16-bit values, not normalized.
 function load_depth_raw(filename)
     img = load(filename)
     raw_values = reinterpret(UInt16, img)
-    return map(Float64, raw_values)
+    return map(Float32, raw_values)
 end
 
 function load_scene(dataset_root::String="datasets/lmo", scene_id::String="000002")
@@ -118,11 +96,11 @@ function load_scene(dataset_root::String="datasets/lmo", scene_id::String="00000
         objects[OBJECT_ID_TO_MASK[id]+1] = ObjectModel(model_file, model_info)
     end
 
-    rgbs = Array{Float64,4}(undef, length(FRAME_IDS), 480, 640, 3)
-    depths = Array{Float64,3}(undef, length(FRAME_IDS), 480, 640)
+    rgbs = Array{Float32,4}(undef, length(FRAME_IDS), 480, 640, 3)
+    depths = Array{Float32,3}(undef, length(FRAME_IDS), 480, 640)
     masks = Array{Bool,4}(undef, length(FRAME_IDS), length(OBJECT_IDS), 480, 640)
-    ks = Array{Float64,3}(undef, length(FRAME_IDS), 3, 3)
-    poses = Array{Float64,4}(undef, length(FRAME_IDS), length(OBJECT_IDS), 4, 4)
+    ks = Array{Float32,3}(undef, length(FRAME_IDS), 3, 3)
+    poses = Array{Float32,4}(undef, length(FRAME_IDS), length(OBJECT_IDS), 4, 4)
     invalid_frames = Set{Int}()
 
     scene_dir = joinpath(dataset_root, "scenes", scene_id)
@@ -133,7 +111,7 @@ function load_scene(dataset_root::String="datasets/lmo", scene_id::String="00000
     scene_gt = JSON3.read(joinpath(scene_dir, "scene_gt.json"))
 
     @printf "Loading scene %s\n" scene_id
-    @showprogress for (frame_idx, frame_id) in enumerate(FRAME_IDS[1:50])
+    @showprogress for (frame_idx, frame_id) in enumerate(FRAME_IDS)
         if length(scene_gt[frame_id]) < length(OBJECT_IDS)
             push!(invalid_frames, frame_idx)
             continue
@@ -141,7 +119,7 @@ function load_scene(dataset_root::String="datasets/lmo", scene_id::String="00000
 
         # Load RGB image
         rgb = load(joinpath(rgb_dir, @sprintf("%06d.png", frame_id)))
-        rgbs[frame_idx, :, :, :] .= map(Float64, permutedims(channelview(rgb), (2, 3, 1)))
+        rgbs[frame_idx, :, :, :] .= map(Float32, permutedims(channelview(rgb), (2, 3, 1)))
 
         # Load depth image as raw values and convert to meters
         depth_file = joinpath(depth_dir, @sprintf("%06d.png", frame_id))
